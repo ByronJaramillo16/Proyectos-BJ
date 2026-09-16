@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema ERP - Control de Bodega y Kardex</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            @page {
+                size: A4;
+                margin: 1.5cm;
+            }
+            aside, button, .no-print {
+                display: none !important;
+            }
+            main {
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+                overflow: visible !important;
+            }
+            body {
+                background: white !important;
+                color: black !important;
+                overflow: visible !important;
+                print-color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+            }
+            .print-header {
+                display: block !important;
+                text-align: center;
+                margin-bottom: 20px;
+                border-bottom: 2px solid #333;
+                padding-bottom: 10px;
+            }
+            table {
+                font-size: 9pt !important;
+                width: 100% !important;
+                border-collapse: collapse !important;
+            }
+            th, td {
+                border: 1px solid #ddd !important;
+                padding: 5px !important;
+            }
+        }
+        .print-header {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans flex h-screen overflow-hidden">
+
+    <!-- ================= PANTALLA DE LOGIN ================= -->
+    <div id="vista-login" class="fixed inset-0 bg-slate-900 z-50 flex justify-center items-center p-4">
+        <div class="bg-white p-8 rounded-xl shadow-2xl max-w-md w-full">
+            <div class="text-center mb-6">
+                <h1 class="text-2xl font-bold text-slate-900">Control de Bodega</h1>
+                <p class="text-sm text-gray-500 mt-1">Inicia sesión con tu cuenta autorizada</p>
+            </div>
+            <form id="form-login" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Correo Electrónico</label>
+                    <input type="email" id="login-email" class="w-full mt-1 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="usuario@empresa.com" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Contraseña</label>
+                    <input type="password" id="login-password" class="w-full mt-1 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="••••••••" required>
+                </div>
+                <div id="login-error" class="hidden text-sm text-red-600 bg-red-50 p-3 rounded-lg text-center"></div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium p-3 rounded-lg transition shadow-md">
+                    Iniciar Sesión
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- MENÚ LATERAL IZQUIERDO -->
+    <aside class="w-64 bg-slate-900 text-white flex flex-col shadow-xl z-10 no-print">
+        <div class="p-5 border-b border-slate-800">
+            <h1 class="text-lg font-bold text-blue-400">Gestión de Bodega</h1>
+            <p id="usuario-actual" class="text-xs text-slate-400 mt-1 truncate">Cargando usuario...</p>
+            <p id="rol-actual" class="text-xs text-yellow-400 mt-0.5 font-semibold uppercase">Rol: --</p>
+            <p id="estado-conexion" class="text-xs text-green-400 mt-1">🟢 Sincronizado</p>
+        </div>
+        
+        <nav class="flex-1 p-4 space-y-2 overflow-y-auto">
+            <button onclick="cambiarModulo('inventario')" id="btn-mod-inventario" class="w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white transition flex items-center space-x-2">
+                <span>📦</span> <span>Kardex / Inventario</span>
+            </button>
+            
+            <div class="pt-2 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">Movimientos</div>
+            <button onclick="cambiarModulo('ingresos')" id="btn-mod-ingresos" class="w-full text-left px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition flex items-center space-x-2 pl-6">
+                <span>📥</span> <span>Registrar Ingresos</span>
+            </button>
+            <button onclick="cambiarModulo('egresos')" id="btn-mod-egresos" class="w-full text-left px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition flex items-center space-x-2 pl-6">
+                <span>📤</span> <span>Registrar Egresos</span>
+            </button>
+
+            <!-- SECCIÓN ADMINISTRACIÓN -->
+            <div id="seccion-admin-menu" class="pt-2 pb-1 text-xs font-semibold text-slate-400 uppercase tracking-wider hidden">Administración</div>
+            <button onclick="cambiarModulo('proveedores')" id="btn-mod-proveedores" class="w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition flex items-center space-x-2 hidden">
+                <span>🏭</span> <span>Proveedores</span>
+            </button>
+            <button onclick="cambiarModulo('usuarios')" id="btn-mod-usuarios" class="w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition flex items-center space-x-2 hidden">
+                <span>👥</span> <span>Gestión de Usuarios</span>
+            </button>
+        </nav>
+
+        <div class="p-4 border-t border-slate-800">
+            <button onclick="cerrarSesion()" class="w-full bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white text-sm font-medium py-2 px-4 rounded-lg transition flex items-center justify-center space-x-2">
+                <span>🚪</span> <span>Cerrar Sesión</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="flex-1 overflow-y-auto p-8">
+        <div id="alerta" class="hidden mb-4 p-4 rounded-md text-sm no-print"></div>
+
+        <div class="print-header">
+            <h1 class="text-2xl font-bold uppercase tracking-wide text-gray-900">REPORTE OFICIAL DE BODEGA</h1>
+            <p class="text-sm text-gray-600">Sistema ERP de Control de Inventario y Kardex</p>
+            <p class="text-xs text-gray-500 mt-1">Fecha de Emisión: <span id="print-date"></span></p>
+        </div>
+
+        <!-- ================= MÓDULO INVENTARIO ================= -->
+        <div id="modulo-inventario" class="space-y-6">
+            <section class="bg-white p-6 rounded-lg shadow-md">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-gray-700">Kardex General de Inventario</h2>
+                        <p class="text-xs text-gray-500">Control detallado de insumos y valorización de existencias</p>
+                    </div>
+                    <div class="flex space-x-2 no-print">
+                        <button onclick="imprimirReporte('Kardex General de Inventario')" class="bg-slate-700 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded transition shadow flex items-center space-x-1">
+                            <span>🖨️</span> <span>Imprimir Kardex A4</span>
+                        </button>
+                        <button id="btn-nuevo-insumo" onclick="abrirModalNuevoProducto()" class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded transition shadow hidden">
+                            + Nuevo Insumo
+                        </button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-600 text-xs uppercase tracking-wider">
+                                <th class="p-3">SKU</th>
+                                <th class="p-3">Descripción</th>
+                                <th class="p-3">Categoría</th>
+                                <th class="p-3 text-center">Inv. Ini</th>
+                                <th class="p-3 text-center text-green-700">Ing.</th>
+                                <th class="p-3 text-center text-red-700">Egr.</th>
+                                <th class="p-3 text-center font-bold">Stock</th>
+                                <th class="p-3">Costo Ref.</th>
+                                <th class="p-3 text-emerald-800 font-bold">Valor Total</th>
+                                <th class="p-3 text-center">Kardex Detallado</th>
+                                <th id="th-acciones-inventario" class="p-3 text-center no-print hidden">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-inventario" class="text-gray-700 text-sm">
+                            <tr><td colspan="11" class="p-4 text-center text-gray-500">Cargando kardex desde Supabase...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- ================= MÓDULO INGRESOS ================= -->
+        <div id="modulo-ingresos" class="space-y-6 hidden">
+            <section class="bg-white p-6 rounded-lg shadow-md border-t-4 border-green-500 no-print">
+                <h2 class="text-lg font-semibold mb-4 text-gray-700">📥 Registrar Ingreso de Insumos</h2>
+                <form id="form-ingreso" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Código SKU</label>
+                        <input type="number" id="ingreso-sku-input" class="w-full mt-1 p-2 border rounded-md font-mono" placeholder="Ej. 1" required oninput="buscarSkuPorTeclado('ingreso')">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-600">Descripción del Insumo</label>
+                        <input type="text" id="ingreso-desc-input" class="w-full mt-1 p-2 border rounded-md bg-gray-50 text-gray-600 font-medium" readonly required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Cantidad a Ingresar</label>
+                        <input type="number" id="ingreso-cantidad" min="1" class="w-full mt-1 p-2 border rounded-md" placeholder="Ej. 50" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Precio Unitario ($)</label>
+                        <input type="number" step="0.01" id="ingreso-precio" min="0" class="w-full mt-1 p-2 border rounded-md" placeholder="Ej. 0.75" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Proveedor / Origen</label>
+                        <input type="text" id="ingreso-tercero" class="w-full mt-1 p-2 border rounded-md" placeholder="Ej. Proveedor S.A." required>
+                    </div>
+                    <div class="md:col-span-3">
+                        <label class="block text-sm font-medium text-gray-600">Factura / Observación</label>
+                        <input type="text" id="ingreso-obs" class="w-full mt-1 p-2 border rounded-md" placeholder="Ej. Factura #102">
+                    </div>
+                    <div class="md:col-span-3 flex items-end pt-2">
+                        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-medium px-6 py-2.5 rounded transition shadow">
+                            Registrar Ingreso y Actualizar Inventario
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="bg-white p-6 rounded-lg shadow-md">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">Historial de Ingresos</h2>
+                    <button onclick="imprimirReporte('Historial General de Ingresos')" class="bg-slate-700 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded transition shadow flex items-center space-x-1 no-print">
+                        <span>🖨️</span> <span>Imprimir Todos los Ingresos</span>
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-600 text-sm">
+                                <th class="p-3">Fecha/Hora</th>
+                                <th class="p-3">Insumo</th>
+                                <th class="p-3">Cantidad</th>
+                                <th class="p-3">Costo Unit.</th>
+                                <th class="p-3">Proveedor</th>
+                                <th class="p-3">Observación</th>
+                                <th class="p-3 text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-ingresos" class="text-gray-700 text-sm"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- ================= MÓDULO EGRESOS ================= -->
+        <div id="modulo-egresos" class="space-y-6 hidden">
+            <section class="bg-white p-6 rounded-lg shadow-md border-t-4 border-red-500 no-print">
+                <h2 class="text-lg font-semibold mb-4 text-gray-700">📤 Registrar Egreso de Insumos</h2>
+                <form id="form-egreso" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Código SKU</label>
+                        <input type="number" id="egreso-sku-input" class="w-full mt-1 p-2 border rounded-md font-mono" placeholder="Ej. 1" required oninput="buscarSkuPorTeclado('egreso')">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-600">Descripción del Insumo</label>
+                        <input type="text" id="egreso-desc-input" class="w-full mt-1 p-2 border rounded-md bg-gray-50 text-gray-600 font-medium" readonly required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Cantidad a Retirar</label>
+                        <input type="number" id="egreso-cantidad" min="1" class="w-full mt-1 p-2 border rounded-md" placeholder="Ej. 10" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Departamento</label>
+                        <input type="text" id="egreso-departamento" class="w-full mt-1 p-2 border rounded-md" placeholder="Ej. Producción" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Responsable / Solicitante</label>
+                        <input type="text" id="egreso-tercero" class="w-full mt-1 p-2 border rounded-md" placeholder="Ej. Juan Pérez" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Nº de Vale Interno</label>
+                        <input type="text" id="egreso-vale" class="w-full mt-1 p-2 border rounded-md font-mono bg-gray-50 text-gray-700 font-bold" readonly required>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-600">Motivo del Egreso</label>
+                        <input type="text" id="egreso-motivo" class="w-full mt-1 p-2 border rounded-md" placeholder="Ej. Consumo para línea de producción" required>
+                    </div>
+                    <div class="md:col-span-3 flex items-end">
+                        <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-medium px-6 py-2.5 rounded transition shadow">
+                            Procesar Egreso y Actualizar Inventario
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="bg-white p-6 rounded-lg shadow-md">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">Historial de Egresos</h2>
+                    <button onclick="imprimirReporte('Historial General de Egresos')" class="bg-slate-700 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded transition shadow flex items-center space-x-1 no-print">
+                        <span>🖨️</span> <span>Imprimir Todos los Egresos</span>
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-600 text-sm">
+                                <th class="p-3">Fecha/Hora</th>
+                                <th class="p-3">Insumo</th>
+                                <th class="p-3">Cantidad</th>
+                                <th class="p-3">Departamento</th>
+                                <th class="p-3">Responsable</th>
+                                <th class="p-3">Observación</th>
+                                <th class="p-3 text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-egresos" class="text-gray-700 text-sm"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- ================= MÓDULO PROVEEDORES ================= -->
+        <div id="modulo-proveedores" class="space-y-6 hidden">
+            <section class="bg-white p-6 rounded-lg shadow-md">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">Directorio de Proveedores</h2>
+                    <div class="flex space-x-2 no-print">
+                        <button onclick="imprimirReporte('Directorio de Proveedores')" class="bg-slate-700 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded transition shadow">🖨️ Imprimir A4</button>
+                        <button onclick="abrirModalProveedor()" class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded transition shadow">
+                            + Nuevo Proveedor
+                        </button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-600 text-sm">
+                                <th class="p-3">Empresa</th>
+                                <th class="p-3">RUC</th>
+                                <th class="p-3">Contacto</th>
+                                <th class="p-3">Teléfono</th>
+                                <th class="p-3">Insumos</th>
+                                <th class="p-3 text-center no-print">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-proveedores" class="text-gray-700 text-sm"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- ================= MÓDULO GESTIÓN DE USUARIOS ================= -->
+        <div id="modulo-usuarios" class="space-y-6 hidden">
+            <section class="bg-white p-6 rounded-lg shadow-md">
+                <div class="flex justify-between items-center mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-gray-700">Gestión de Usuarios del Sistema</h2>
+                        <p class="text-xs text-gray-500">Administra cuentas de acceso, roles y contraseñas</p>
+                    </div>
+                    <div class="flex space-x-2 no-print">
+                        <button onclick="abrirModalUsuario()" class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded transition shadow">
+                            + Nuevo Usuario
+                        </button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-gray-100 text-gray-600 text-sm">
+                                <th class="p-3">UID</th>
+                                <th class="p-3">Display Name</th>
+                                <th class="p-3">Correo Electrónico</th>
+                                <th class="p-3">Teléfono</th>
+                                <th class="p-3">Rol Asignado</th>
+                                <th class="p-3 text-center no-print">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-usuarios" class="text-gray-700 text-sm">
+                            <tr><td colspan="6" class="p-4 text-center text-gray-500">Cargando usuarios...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Modal Insumo -->
+    <div id="modal-producto" class="fixed inset-0 bg-black bg-opacity-50 hidden flex justify-center items-center p-4 z-50">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
+            <h3 id="modal-titulo" class="text-lg font-bold mb-4 text-gray-800">Registrar Nuevo Insumo</h3>
+            <form id="form-producto" class="space-y-4">
+                <input type="hidden" id="edit-id">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Código SKU</label>
+                    <input type="number" id="input-codigo" class="w-full mt-1 p-2 border rounded-md font-mono" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Descripción</label>
+                    <input type="text" id="input-descripcion" class="w-full mt-1 p-2 border rounded-md" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Categoría</label>
+                    <input type="text" id="input-categoria" class="w-full mt-1 p-2 border rounded-md">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Inventario Inicial</label>
+                    <input type="number" id="input-stock" class="w-full mt-1 p-2 border rounded-md" value="0" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Costo Referente ($)</label>
+                    <input type="number" step="0.01" id="input-precio" class="w-full mt-1 p-2 border rounded-md" value="0.00" required>
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" onclick="cerrarModalProducto()" class="bg-gray-300 px-4 py-2 rounded text-gray-700">Cancelar</button>
+                    <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Proveedor -->
+    <div id="modal-proveedor" class="fixed inset-0 bg-black bg-opacity-50 hidden flex justify-center items-center p-4 z-50">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
+            <h3 id="modal-prov-titulo" class="text-lg font-bold mb-4 text-gray-800">Registrar Proveedor</h3>
+            <form id="form-proveedor" class="space-y-4">
+                <input type="hidden" id="prov-edit-id">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Empresa</label>
+                    <input type="text" id="prov-nombre" class="w-full mt-1 p-2 border rounded-md" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">RUC</label>
+                    <input type="text" id="prov-ruc" class="w-full mt-1 p-2 border rounded-md" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Contacto</label>
+                    <input type="text" id="prov-contacto" class="w-full mt-1 p-2 border rounded-md">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Teléfono / Correo</label>
+                    <input type="text" id="prov-tel" class="w-full mt-1 p-2 border rounded-md">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Insumos</label>
+                    <input type="text" id="prov-insumos" class="w-full mt-1 p-2 border rounded-md">
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" onclick="cerrarModalProveedor()" class="bg-gray-300 px-4 py-2 rounded text-gray-700">Cancelar</button>
+                    <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Usuario Actualizado -->
+    <div id="modal-usuario" class="fixed inset-0 bg-black bg-opacity-50 hidden flex justify-center items-center p-4 z-50">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
+            <h3 id="modal-user-titulo" class="text-lg font-bold mb-4 text-gray-800">Crear Nuevo Usuario</h3>
+            <form id="form-usuario" class="space-y-4">
+                <input type="hidden" id="user-edit-id">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Nombre para mostrar (Display Name)</label>
+                    <input type="text" id="user-display-name" class="w-full mt-1 p-2 border rounded-md" placeholder="Ej. Juan Pérez">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Correo Electrónico</label>
+                    <input type="email" id="user-email" class="w-full mt-1 p-2 border rounded-md" required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Teléfono (Phone)</label>
+                    <input type="text" id="user-phone" class="w-full mt-1 p-2 border rounded-md" placeholder="Ej. +593999999999">
+                </div>
+                <div id="div-user-pass">
+                    <label class="block text-sm font-medium text-gray-600">Contraseña temporal</label>
+                    <input type="password" id="user-pass" class="w-full mt-1 p-2 border rounded-md" placeholder="Mínimo 6 caracteres">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Rol del Sistema</label>
+                    <select id="user-role" class="w-full mt-1 p-2 border rounded-md bg-white">
+                        <option value="user">USER (Estándar - Operativo)</option>
+                        <option value="admin">ADMIN (Administrador total)</option>
+                    </select>
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" onclick="cerrarModalUsuario()" class="bg-gray-300 px-4 py-2 rounded text-gray-700">Cancelar</button>
+                    <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Kardex Detallado (Estilo Reporte Ejecutivo) -->
+    <div id="modal-kardex-detallado" class="fixed inset-0 bg-black bg-opacity-60 hidden flex justify-center items-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white p-6 rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4 border-b pb-3 no-print">
+                <h3 class="text-lg font-bold text-blue-900 uppercase">Kardex de Control de Inventario (Promedio Ponderado)</h3>
+                <div class="space-x-2">
+                    <button onclick="window.print()" class="bg-slate-700 hover:bg-slate-800 text-white px-4 py-1.5 rounded text-sm shadow">🖨️ Imprimir</button>
+                    <button onclick="cerrarModalKardexDetallado()" class="bg-gray-300 px-4 py-1.5 rounded text-gray-700 text-sm">Cerrar</button>
+                </div>
+            </div>
+            
+            <div id="contenido-kardex-ejecutivo" class="space-y-4">
+                <!-- Se inyecta dinámicamente el reporte de kardex detallado -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://awhnlxgqhiiymgeqngfo.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_zVKRkddPY1NrDgubab9LWQ_skOAPUen';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let listaInsumos = [];
+        let rolActualUsuario = 'user';
+
+        function obtenerNombreUsuario(user) {
+            const displayName = user.user_metadata?.display_name;
+            return (displayName && displayName.trim() !== '') ? displayName : user.email;
+        }
+
+        async function verificarSesion() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            const vistaLogin = document.getElementById('vista-login');
+            const lblUsuario = document.getElementById('usuario-actual');
+            const lblRol = document.getElementById('rol-actual');
+
+            if (session) {
+                vistaLogin.classList.add('hidden');
+                
+                const nombreAMostrar = obtenerNombreUsuario(session.user);
+                lblUsuario.innerText = `👤 ${nombreAMostrar}`;
+                
+                rolActualUsuario = session.user.user_metadata?.role || 'user';
+                lblRol.innerText = `Rol: ${rolActualUsuario.toUpperCase()}`;
+
+                aplicarPermisosPorRol(rolActualUsuario);
+                cargarInventario();
+            } else {
+                vistaLogin.classList.remove('hidden');
+            }
+        }
+
+        function aplicarPermisosPorRol(rol) {
+            const esAdmin = (rol === 'admin');
+            
+            const btnNuevoInsumo = document.getElementById('btn-nuevo-insumo');
+            const thAccionesInv = document.getElementById('th-acciones-inventario');
+            const seccionAdminMenu = document.getElementById('seccion-admin-menu');
+            const btnModProveedores = document.getElementById('btn-mod-proveedores');
+            const btnModUsuarios = document.getElementById('btn-mod-usuarios');
+
+            if (esAdmin) {
+                if (btnNuevoInsumo) btnNuevoInsumo.classList.remove('hidden');
+                if (thAccionesInv) thAccionesInv.classList.remove('hidden');
+                if (seccionAdminMenu) seccionAdminMenu.classList.remove('hidden');
+                if (btnModProveedores) btnModProveedores.classList.remove('hidden');
+                if (btnModUsuarios) btnModUsuarios.classList.remove('hidden');
+            } else {
+                if (btnNuevoInsumo) btnNuevoInsumo.classList.add('hidden');
+                if (thAccionesInv) thAccionesInv.classList.add('hidden');
+                if (seccionAdminMenu) seccionAdminMenu.classList.add('hidden');
+                if (btnModProveedores) btnModProveedores.classList.add('hidden');
+                if (btnModUsuarios) btnModUsuarios.classList.add('hidden');
+            }
+        }
+
+        document.getElementById('form-login').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            const errorDiv = document.getElementById('login-error');
+
+            errorDiv.classList.add('hidden');
+
+            const { data, error } = await supabaseClient.auth.signInWithPassword({
+                email: email,
+                password: password
+            });
+
+            if (error) {
+                errorDiv.innerText = "Credenciales incorrectas o usuario no registrado.";
+                errorDiv.classList.remove('hidden');
+            } else {
+                document.getElementById('vista-login').classList.add('hidden');
+                
+                const nombreAMostrar = obtenerNombreUsuario(data.user);
+                document.getElementById('usuario-actual').innerText = `👤 ${nombreAMostrar}`;
+                
+                rolActualUsuario = data.user.user_metadata?.role || 'user';
+                document.getElementById('rol-actual').innerText = `Rol: ${rolActualUsuario.toUpperCase()}`;
+                
+                aplicarPermisosPorRol(rolActualUsuario);
+                cargarInventario();
+            }
+        });
+
+        async function cerrarSesion() {
+            await supabaseClient.auth.signOut();
+            location.reload();
+        }
+
+        function imprimirReporte(tituloReporte) {
+            document.getElementById('print-date').innerText = new Date().toLocaleString();
+            const header = document.querySelector('.print-header h1');
+            const originalText = header.innerText;
+            header.innerText = tituloReporte.toUpperCase();
+            window.print();
+            header.innerText = originalText;
+        }
+
+        function imprimirComprobanteIndividual(tipo, fecha, codigo, desc, cantidad, extra1, extra2, obs) {
+            const esIngreso = (tipo.toUpperCase() === 'INGRESO');
+            const tituloTipo = esIngreso ? 'COMPROBANTE DE INGRESO A BODEGA' : 'COMPROBANTE DE EGRESO DE BODEGA';
+            const colorBorde = esIngreso ? 'border-green-600' : 'border-red-600';
+            const colorBadge = esIngreso ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+
+            const ventanaImpresion = window.open('', '_blank', 'width=800,height=600');
+            ventanaImpresion.document.write(`
+                <html>
+                <head>
+                    <title>${tituloTipo}</title>
+                    <script src="https://cdn.tailwindcss.com"><\/script>
+                    <style>
+                        @media print {
+                            body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+                        }
+                    </style>
+                </head>
+                <body class="p-8 bg-white text-gray-800 font-sans">
+                    <div class="max-w-2xl mx-auto border-2 ${colorBorde} p-8 rounded-xl shadow-sm bg-white">
+                        <!-- Encabezado Empresarial -->
+                        <div class="flex justify-between items-start border-b-2 border-gray-200 pb-4 mb-6">
+                            <div>
+                                <h1 class="text-xl font-black uppercase text-slate-900">SISTEMA ERP DE BODEGA</h1>
+                                <p class="text-xs text-gray-500 mt-0.5">Control Oficial de Kardex e Inventarios</p>
+                            </div>
+                            <div class="text-right">
+                                <span class="px-3 py-1 rounded-full text-xs font-bold uppercase ${colorBadge}">${tipo}</span>
+                                <p class="text-xs text-gray-500 mt-2"><strong>Fecha:</strong> ${fecha}</p>
+                            </div>
+                        </div>
+
+                        <!-- Título del Comprobante -->
+                        <div class="text-center mb-6">
+                            <h2 class="text-base font-bold text-gray-700 uppercase tracking-wider">${tituloTipo}</h2>
+                        </div>
+
+                        <!-- Datos Principales en Tarjeta -->
+                        <div class="bg-gray-50 p-5 rounded-lg border border-gray-200 space-y-3 text-sm mb-8">
+                            <div class="grid grid-cols-3 gap-2 border-b border-gray-200 pb-2">
+                                <span class="font-semibold text-gray-600">Código SKU:</span>
+                                <span class="col-span-2 font-mono font-bold text-blue-600">${codigo}</span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2 border-b border-gray-200 pb-2">
+                                <span class="font-semibold text-gray-600">Descripción:</span>
+                                <span class="col-span-2 font-medium text-gray-900">${desc}</span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2 border-b border-gray-200 pb-2">
+                                <span class="font-semibold text-gray-600">Cantidad:</span>
+                                <span class="col-span-2 font-bold text-lg text-slate-900">${cantidad} unidades</span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2 border-b border-gray-200 pb-2">
+                                <span class="font-semibold text-gray-600">${esIngreso ? 'Costo Unitario:' : 'Departamento:'}</span>
+                                <span class="col-span-2 font-medium">${extra1}</span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2 border-b border-gray-200 pb-2">
+                                <span class="font-semibold text-gray-600">${esIngreso ? 'Proveedor / Origen:' : 'Responsable:'}</span>
+                                <span class="col-span-2 font-medium">${extra2}</span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2">
+                                <span class="font-semibold text-gray-600">Observaciones:</span>
+                                <span class="col-span-2 text-gray-700 italic">${obs || 'Sin observaciones adicionales'}</span>
+                            </div>
+                        </div>
+
+                        <!-- Firmas de Autorización -->
+                        <div class="mt-16 pt-8 border-t-2 border-gray-200 flex justify-around text-center text-xs">
+                            <div>
+                                <div class="border-t border-gray-500 w-48 mx-auto mb-1"></div>
+                                <p class="font-semibold text-gray-700">Entregado / Autorizado por</p>
+                                <p class="text-gray-400 text-[10px]">Firma y Sello</p>
+                            </div>
+                            <div>
+                                <div class="border-t border-gray-500 w-48 mx-auto mb-1"></div>
+                                <p class="font-semibold text-gray-700">Recibido / Bodega</p>
+                                <p class="text-gray-400 text-[10px]">Firma y Sello</p>
+                            </div>
+                        </div>
+                    </div>
+                    <script>
+                        window.onload = function() { window.print(); window.close(); }
+                    <\/script>
+                </body>
+                </html>
+            `);
+            ventanaImpresion.document.close();
+        }
+
+        function cambiarModulo(modulo) {
+            if ((modulo === 'proveedores' || modulo === 'usuarios') && rolActualUsuario !== 'admin') {
+                mostrarAlerta("No tienes permisos para acceder a este módulo.", "red");
+                return;
+            }
+
+            ['inventario', 'ingresos', 'egresos', 'proveedores', 'usuarios'].forEach(mod => {
+                const el = document.getElementById(`modulo-${mod}`);
+                const btn = document.getElementById(`btn-mod-${mod}`);
+                if(el) el.classList.add('hidden');
+                if(btn) {
+                    btn.className = mod === 'ingresos' || mod === 'egresos' 
+                        ? "w-full text-left px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition flex items-center space-x-2 pl-6"
+                        : "w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition flex items-center space-x-2";
+                }
+            });
+
+            document.getElementById(`modulo-${modulo}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`btn-mod-${modulo}`);
+            if(activeBtn) {
+                activeBtn.className = modulo === 'ingresos' || modulo === 'egresos' 
+                    ? "w-full text-left px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white transition flex items-center space-x-2 pl-6 shadow"
+                    : "w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white transition flex items-center space-x-2 shadow";
+            }
+
+            if (modulo === 'inventario') cargarInventario();
+            if (modulo === 'ingresos') { cargarInventario(); cargarMovimientosSupabase('INGRESO'); }
+            if (modulo === 'egresos') { cargarInventario(); cargarMovimientosSupabase('EGRESO'); autogenerarValeInterno(); }
+            if (modulo === 'proveedores' && rolActualUsuario === 'admin') cargarProveedoresSupabase();
+            if (modulo === 'usuarios' && rolActualUsuario === 'admin') cargarUsuariosSupabase();
+        }
+
+        async function autogenerarValeInterno() {
+            const inputVale = document.getElementById('egreso-vale');
+            if (!inputVale) return;
+
+            const { data, error } = await supabaseClient
+                .from('movimientos_bodega')
+                .select('obs')
+                .eq('tipo', 'EGRESO')
+                .order('id', { ascending: false })
+                .limit(1);
+
+            let siguienteNumero = 1;
+
+            if (!error && data && data.length > 0 && data[0].obs) {
+                const ultimoObs = data[0].obs;
+                const match = ultimoObs.match(/\d+/);
+                if (match) {
+                    siguienteNumero = parseInt(match[0]) + 1;
+                }
+            }
+
+            inputVale.value = `VI-${String(siguienteNumero).padStart(3, '0')}`;
+        }
+
+        async function cargarInventario() {
+            const [resSkus, resMovs] = await Promise.all([
+                supabaseClient.from('skus').select('*'),
+                supabaseClient.from('movimientos_bodega').select('*')
+            ]);
+
+            if (resSkus.error) {
+                mostrarAlerta("Error al cargar inventario: " + resSkus.error.message, "red");
+                return;
+            }
+
+            listaInsumos = resSkus.data || [];
+            const movimientos = resMovs.data || [];
+
+            renderInventario(listaInsumos, movimientos);
+        }
+
+        function renderInventario(insumos, movimientos) {
+            const tabla = document.getElementById('tabla-inventario');
+            const esAdmin = (rolActualUsuario === 'admin');
+
+            if (insumos.length === 0) {
+                const colSpan = esAdmin ? 11 : 10;
+                tabla.innerHTML = `<tr><td colspan="${colSpan}" class="p-4 text-center text-gray-500">No hay insumos registrados.</td></tr>`;
+                return;
+            }
+
+            tabla.innerHTML = '';
+            insumos.forEach(item => {
+                const codigoSku = Number(item.CODIGO || 0);
+                const descripcion = item.DESCRIPCION || 'Sin descripción';
+                const invInicial = Number(item.INVENTARIO_INICIAL || 0);
+                const categoria = item.CATEGORIA || 'General';
+                const precioRef = Number(item.PRECIO_REFERENTE || 0);
+
+                let totalIngresos = 0;
+                let totalEgresos = 0;
+
+                movimientos.forEach(m => {
+                    if (Number(m.codigo || 0) === codigoSku) {
+                        if (m.tipo === 'INGRESO') totalIngresos += Number(m.cantidad || 0);
+                        if (m.tipo === 'EGRESO') totalEgresos += Number(m.cantidad || 0);
+                    }
+                });
+
+                const existenciasActuales = invInicial + totalIngresos - totalEgresos;
+                const valorTotal = existenciasActuales * precioRef;
+
+                let tdAcciones = '';
+                if (esAdmin) {
+                    tdAcciones = `
+                        <td class="p-3 text-center space-x-2 no-print">
+                            <button onclick="editarInsumo('${item.id || item.CODIGO}')" class="text-blue-600 hover:underline font-medium text-xs bg-blue-50 px-2 py-1 rounded">Editar</button>
+                            <button onclick="eliminarInsumo('${item.id || item.CODIGO}')" class="text-red-600 hover:underline font-medium text-xs bg-red-50 px-2 py-1 rounded">Eliminar</button>
+                        </td>
+                    `;
+                }
+
+                tabla.innerHTML += `
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="p-3 font-mono font-semibold text-blue-600">${codigoSku}</td>
+                        <td class="p-3">${descripcion}</td>
+                        <td class="p-3"><span class="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs">${categoria}</span></td>
+                        <td class="p-3 text-center font-medium text-gray-600">${invInicial}</td>
+                        <td class="p-3 text-center font-bold text-green-600">+${totalIngresos}</td>
+                        <td class="p-3 text-center font-bold text-red-600">-${totalEgresos}</td>
+                        <td class="p-3 text-center font-extrabold text-slate-900 bg-gray-50">${existenciasActuales}</td>
+                        <td class="p-3">$${precioRef.toFixed(2)}</td>
+                        <td class="p-3 font-bold text-emerald-800 bg-emerald-50/40">$${valorTotal.toFixed(2)}</td>
+                        <td class="p-3 text-center">
+                            <button onclick="verKardexEjecutivo(${codigoSku})" class="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded shadow">Ver Kardex</button>
+                        </td>
+                        ${tdAcciones}
+                    </tr>
+                `;
+            });
+        }
+
+        async function verKardexEjecutivo(codigoSku) {
+            const item = listaInsumos.find(i => Number(i.CODIGO) === Number(codigoSku));
+            if (!item) return;
+
+            const { data: movs } = await supabaseClient
+                .from('movimientos_bodega')
+                .select('*')
+                .eq('codigo', codigoSku)
+                .order('id', { ascending: true });
+
+            const contenedor = document.getElementById('contenido-kardex-ejecutivo');
+            
+            let htmlMovimientos = '';
+            let saldoCant = Number(item.INVENTARIO_INICIAL || 0);
+            let saldoCUnit = Number(item.PRECIO_REFERENTE || 0);
+            let saldoTotal = saldoCant * saldoCUnit;
+
+            htmlMovimientos += `
+                <tr>
+                    <td class="text-center">Inicio</td>
+                    <td class="text-center">INV-00</td>
+                    <td>Inventario Inicial / Base</td>
+                    <td class="text-center">-</td><td class="text-right">-</td><td class="text-right">-</td>
+                    <td class="text-center">-</td><td class="text-right">-</td><td class="text-right">-</td>
+                    <td class="text-center">${saldoCant}</td><td class="text-right">$${saldoCUnit.toFixed(2)}</td><td class="text-right">$${saldoTotal.toFixed(2)}</td>
+                </tr>
+            `;
+
+            if (movs && movs.length > 0) {
+                movs.forEach(m => {
+                    const cant = Number(m.cantidad || 0);
+                    const cUnit = Number(m.precio_unitario || saldoCUnit);
+                    
+                    if (m.tipo === 'INGRESO') {
+                        const totalEntrada = cant * cUnit;
+                        saldoCant += cant;
+                        saldoTotal += totalEntrada;
+                        saldoCUnit = saldoCant > 0 ? saldoTotal / saldoCant : cUnit;
+
+                        htmlMovimientos += `
+                            <tr>
+                                <td class="text-center">${m.fecha}</td>
+                                <td class="text-center">OC/Ingreso</td>
+                                <td>${m.obs || m.tercero || 'Ingreso de bodega'}</td>
+                                <td class="text-center">${cant}</td>
+                                <td class="text-right">$${cUnit.toFixed(2)}</td>
+                                <td class="text-right">$${totalEntrada.toFixed(2)}</td>
+                                <td class="text-center">-</td><td class="text-right">-</td><td class="text-right">-</td>
+                                <td class="text-center font-bold">${saldoCant}</td>
+                                <td class="text-right">$${saldoCUnit.toFixed(2)}</td>
+                                <td class="text-right font-bold">$${saldoTotal.toFixed(2)}</td>
+                            </tr>
+                        `;
+                    } else if (m.tipo === 'EGRESO') {
+                        const totalSalida = cant * saldoCUnit;
+                        saldoCant -= cant;
+                        saldoTotal -= totalSalida;
+                        if (saldoCant <= 0) { saldoCant = 0; saldoTotal = 0; }
+
+                        htmlMovimientos += `
+                            <tr class="bg-amber-50">
+                                <td class="text-center">${m.fecha}</td>
+                                <td class="text-center font-semibold">Egreso</td>
+                                <td>${m.obs || m.departamento || 'Salida de bodega'}</td>
+                                <td class="text-center">-</td><td class="text-right">-</td><td class="text-right">-</td>
+                                <td class="text-center font-bold text-red-600">${cant}</td>
+                                <td class="text-right">$${saldoCUnit.toFixed(2)}</td>
+                                <td class="text-right">$${totalSalida.toFixed(2)}</td>
+                                <td class="text-center font-bold">${saldoCant}</td>
+                                <td class="text-right">$${saldoCUnit.toFixed(2)}</td>
+                                <td class="text-right font-bold">$${saldoTotal.toFixed(2)}</td>
+                            </tr>
+                        `;
+                    }
+                });
+            }
+
+            contenedor.innerHTML = `
+                <div class="border border-slate-300 p-6 rounded-lg bg-white">
+                    <div class="border-b-2 border-blue-900 pb-3 mb-4 flex justify-between items-end">
+                        <div>
+                            <h2 class="text-blue-900 font-bold text-lg uppercase">Kardex de Control de Inventario</h2>
+                            <p class="text-xs text-gray-500">Sistema ERP - Valoración por Promedio Ponderado</p>
+                        </div>
+                        <div class="text-right text-xs text-gray-500">
+                            <p><strong>Fecha de Emisión:</strong> ${new Date().toLocaleDateString()}</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-3 bg-slate-50 p-3 rounded border border-slate-200 mb-4 text-xs">
+                        <div><strong>Código SKU:</strong> ${item.CODIGO}</div>
+                        <div><strong>Artículo:</strong> ${item.DESCRIPCION}</div>
+                        <div><strong>Categoría:</strong> ${item.CATEGORIA || 'General'}</div>
+                        <div><strong>Método:</strong> Promedio Ponderado</div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-blue-900 text-white">
+                                    <th rowspan="2" class="border p-1.5">Fecha</th>
+                                    <th rowspan="2" class="border p-1.5">Documento</th>
+                                    <th rowspan="2" class="border p-1.5">Detalle / Motivo</th>
+                                    <th colspan="3" class="border p-1.5 text-center">Entradas</th>
+                                    <th colspan="3" class="border p-1.5 text-center">Salidas</th>
+                                    <th colspan="3" class="border p-1.5 text-center">Saldos</th>
+                                </tr>
+                                <tr class="bg-blue-800 text-white">
+                                    <th class="border p-1">Cant.</th><th class="border p-1">C. Unit</th><th class="border p-1">Total</th>
+                                    <th class="border p-1">Cant.</th><th class="border p-1">C. Unit</th><th class="border p-1">Total</th>
+                                    <th class="border p-1">Cant.</th><th class="border p-1">C. Unit</th><th class="border p-1">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${htmlMovimientos}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('modal-kardex-detallado').classList.remove('hidden');
+        }
+
+        function cerrarModalKardexDetallado() {
+            document.getElementById('modal-kardex-detallado').classList.add('hidden');
+        }
+
+        function buscarSkuPorTeclado(tipo) {
+            const inputSku = Number(document.getElementById(`${tipo}-sku-input`).value);
+            const inputDesc = document.getElementById(`${tipo}-desc-input`);
+
+            if (!inputSku) {
+                inputDesc.value = '';
+                return;
+            }
+
+            const encontrado = listaInsumos.find(i => Number(i.CODIGO || 0) === inputSku);
+            if (encontrado) {
+                inputDesc.value = encontrado.DESCRIPCION || 'Sin descripción';
+            } else {
+                inputDesc.value = '⚠️ Código no encontrado en inventario';
+            }
+        }
+
+        document.getElementById('form-ingreso').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const codigoSku = Number(document.getElementById('ingreso-sku-input').value);
+            const cantidad = parseInt(document.getElementById('ingreso-cantidad').value);
+            const precioUnitario = parseFloat(document.getElementById('ingreso-precio').value);
+            const tercero = document.getElementById('ingreso-tercero').value;
+            const obs = document.getElementById('ingreso-obs').value;
+
+            const { data: producto } = await supabaseClient.from('skus').select('*').eq('CODIGO', codigoSku).maybeSingle();
+
+            if (!producto) {
+                mostrarAlerta("No se encontró el insumo con ese código SKU.", "red");
+                return;
+            }
+
+            const descripcionProd = producto.DESCRIPCION || 'Sin descripción';
+            
+            await supabaseClient.from('skus').update({ PRECIO_REFERENTE: precioUnitario }).eq('CODIGO', codigoSku);
+
+            const { error: errMov } = await supabaseClient.from('movimientos_bodega').insert([{
+                fecha: new Date().toLocaleString(),
+                tipo: 'INGRESO',
+                codigo: codigoSku,
+                descripcion: descripcionProd,
+                cantidad: cantidad,
+                precio_unitario: precioUnitario,
+                tercero: tercero,
+                obs: obs
+            }]);
+
+            if (errMov) {
+                mostrarAlerta("Error al guardar ingreso: " + errMov.message, "red");
+                return;
+            }
+
+            mostrarAlerta("¡Ingreso registrado y guardado en Supabase!", "green");
+            document.getElementById('form-ingreso').reset();
+            document.getElementById('ingreso-desc-input').value = '';
+            cargarInventario();
+            cargarMovimientosSupabase('INGRESO');
+        });
+
+        document.getElementById('form-egreso').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const codigoSku = Number(document.getElementById('egreso-sku-input').value);
+            const cantidad = parseInt(document.getElementById('egreso-cantidad').value);
+            const departamento = document.getElementById('egreso-departamento').value;
+            const tercero = document.getElementById('egreso-tercero').value;
+            const valeInterno = document.getElementById('egreso-vale').value;
+            const motivoEgreso = document.getElementById('egreso-motivo').value;
+
+            const { data: producto } = await supabaseClient.from('skus').select('*').eq('CODIGO', codigoSku).maybeSingle();
+
+            if (!producto) {
+                mostrarAlerta("No se encontró el insumo con ese código SKU.", "red");
+                return;
+            }
+
+            const descripcionProd = producto.DESCRIPCION || 'Sin descripción';
+
+            const { error: errMov } = await supabaseClient.from('movimientos_bodega').insert([{
+                fecha: new Date().toLocaleString(),
+                tipo: 'EGRESO',
+                codigo: codigoSku,
+                descripcion: descripcionProd,
+                cantidad: cantidad,
+                departamento: departamento,
+                tercero: tercero,
+                obs: `Vale: ${valeInterno} | Motivo: ${motivoEgreso}`
+            }]);
+
+            if (errMov) {
+                mostrarAlerta("Error al registrar egreso: " + errMov.message, "red");
+                return;
+            }
+
+            mostrarAlerta("¡Egreso procesado y guardado en Supabase!", "green");
+            document.getElementById('form-egreso').reset();
+            document.getElementById('egreso-desc-input').value = '';
+            autogenerarValeInterno();
+            cargarInventario();
+            cargarMovimientosSupabase('EGRESO');
+        });
+
+        async function cargarMovimientosSupabase(tipoFiltro) {
+            const idTabla = tipoFiltro === 'INGRESO' ? 'tabla-ingresos' : 'tabla-egresos';
+            const tabla = document.getElementById(idTabla);
+            const esAdmin = (rolActualUsuario === 'admin');
+            
+            const { data, error } = await supabaseClient
+                .from('movimientos_bodega')
+                .select('*')
+                .eq('tipo', tipoFiltro)
+                .order('id', { ascending: false });
+
+            if (error || !data || data.length === 0) {
+                tabla.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-gray-500">Sin registros de ${tipoFiltro.toLowerCase()}s.</td></tr>`;
+                return;
+            }
+
+            tabla.innerHTML = '';
+            data.forEach(m => {
+                let botonesAcciones = `<button onclick="imprimirComprobanteIndividual('${tipoFiltro}', '${m.fecha}', '${m.codigo}', '${m.descripcion}', '${m.cantidad}', '${tipoFiltro === 'INGRESO' ? '$' + Number(m.precio_unitario || 0).toFixed(2) : (m.departamento || 'N/D')}', '${m.tercero}', '${m.obs || ''}')" class="text-slate-700 hover:underline font-medium text-xs bg-slate-100 px-2 py-1 rounded">🖨️</button>`;
+                
+                if (esAdmin) {
+                    botonesAcciones += ` <button onclick="eliminarMovimientoSupabase(${m.id}, '${tipoFiltro}')" class="text-red-600 hover:underline font-medium text-xs bg-red-50 px-2 py-1 rounded">Borrar</button>`;
+                }
+
+                if (tipoFiltro === 'INGRESO') {
+                    tabla.innerHTML += `
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="p-3 text-xs text-gray-500">${m.fecha}</td>
+                            <td class="p-3 font-semibold">${m.codigo} - ${m.descripcion}</td>
+                            <td class="p-3 font-bold text-green-600">${m.cantidad}</td>
+                            <td class="p-3 font-medium text-gray-800">$${Number(m.precio_unitario || 0).toFixed(2)}</td>
+                            <td class="p-3">${m.tercero}</td>
+                            <td class="p-3 text-xs text-gray-600">${m.obs || '-'}</td>
+                            <td class="p-3 text-center space-x-1">${botonesAcciones}</td>
+                        </tr>
+                    `;
+                } else {
+                    tabla.innerHTML += `
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="p-3 text-xs text-gray-500">${m.fecha}</td>
+                            <td class="p-3 font-semibold">${m.codigo} - ${m.descripcion}</td>
+                            <td class="p-3 font-bold text-red-600">${m.cantidad}</td>
+                            <td class="p-3"><span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium">${m.departamento || 'N/D'}</span></td>
+                            <td class="p-3">${m.tercero}</td>
+                            <td class="p-3 text-xs text-gray-600">${m.obs || '-'}</td>
+                            <td class="p-3 text-center space-x-1">${botonesAcciones}</td>
+                        </tr>
+                    `;
+                }
+            });
+        }
+
+        async function eliminarMovimientoSupabase(id, tipoFiltro) {
+            if (rolActualUsuario !== 'admin') return;
+            if (!confirm("¿Deseas eliminar este registro?")) return;
+            const { error } = await supabaseClient.from('movimientos_bodega').delete().eq('id', id);
+            if (!error) {
+                mostrarAlerta("Registro eliminado.", "green");
+                cargarMovimientosSupabase(tipoFiltro);
+                cargarInventario();
+                if (tipoFiltro === 'EGRESO') autogenerarValeInterno();
+            }
+        }
+
+        async function cargarUsuariosSupabase() {
+            if (rolActualUsuario !== 'admin') return;
+            const tabla = document.getElementById('tabla-usuarios');
+            tabla.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-500">Cargando usuarios desde Supabase...</td></tr>`;
+
+            try {
+                const { data, error } = await supabaseClient.rpc('get_auth_users');
+                
+                if (error) {
+                    tabla.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-500">Para listar usuarios, asegúrate de crear la función RPC 'get_auth_users' en Supabase.</td></tr>`;
+                    return;
+                }
+
+                if (!data || data.length === 0) {
+                    tabla.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-500">No hay usuarios registrados.</td></tr>`;
+                    return;
+                }
+
+                tabla.innerHTML = '';
+                data.forEach(u => {
+                    const rol = u.raw_user_meta_data?.role || 'user';
+                    const displayName = u.raw_user_meta_data?.display_name || '-';
+                    const telefono = u.phone || '-';
+                    
+                    tabla.innerHTML += `
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="p-3 font-mono text-xs text-gray-500">${u.id}</td>
+                            <td class="p-3 font-medium text-gray-800">${displayName}</td>
+                            <td class="p-3 font-semibold text-blue-600">${u.email}</td>
+                            <td class="p-3 text-xs">${telefono}</td>
+                            <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${rol === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-gray-200 text-gray-700'}">${rol.toUpperCase()}</span></td>
+                            <td class="p-3 text-center space-x-2 no-print">
+                                <button onclick="editarUsuario('${u.id}', '${u.email}', '${rol}', '${displayName}', '${u.phone || ''}')" class="text-blue-600 hover:underline font-medium text-xs bg-blue-50 px-2 py-1 rounded">Editar</button>
+                                <button onclick="eliminarUsuario('${u.id}', '${u.email}')" class="text-red-600 hover:underline font-medium text-xs bg-red-50 px-2 py-1 rounded">Eliminar</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (err) {
+                tabla.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-red-500">Error al conectar con el servicio de autenticación.</td></tr>`;
+            }
+        }
+
+        function abrirModalUsuario() {
+            if (rolActualUsuario !== 'admin') return;
+            document.getElementById('modal-user-titulo').innerText = "Crear Nuevo Usuario";
+            document.getElementById('user-edit-id').value = "";
+            document.getElementById('user-display-name').value = "";
+            document.getElementById('user-email').value = "";
+            document.getElementById('user-phone').value = "";
+            document.getElementById('user-pass').value = "";
+            document.getElementById('user-pass').required = true;
+            document.getElementById('div-user-pass').classList.remove('hidden');
+            document.getElementById('user-role').value = "user";
+            document.getElementById('modal-usuario').classList.remove('hidden');
+        }
+
+        function editarUsuario(id, email, rol, displayName, phone) {
+            if (rolActualUsuario !== 'admin') return;
+            document.getElementById('modal-user-titulo').innerText = "Modificar Datos de Usuario";
+            document.getElementById('user-edit-id').value = id;
+            document.getElementById('user-display-name').value = displayName !== '-' ? displayName : '';
+            document.getElementById('user-email').value = email;
+            document.getElementById('user-email').setAttribute('readonly', true);
+            document.getElementById('user-phone').value = phone;
+            document.getElementById('user-pass').required = false;
+            document.getElementById('div-user-pass').classList.add('hidden');
+            document.getElementById('user-role').value = rol;
+            document.getElementById('modal-usuario').classList.remove('hidden');
+        }
+
+        function cerrarModalUsuario() {
+            document.getElementById('modal-usuario').classList.add('hidden');
+            document.getElementById('user-email').removeAttribute('readonly');
+        }
+
+        document.getElementById('form-usuario').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (rolActualUsuario !== 'admin') return;
+
+            const editId = document.getElementById('user-edit-id').value;
+            const displayName = document.getElementById('user-display-name').value;
+            const email = document.getElementById('user-email').value;
+            const phone = document.getElementById('user-phone').value;
+            const password = document.getElementById('user-pass').value;
+            const nuevoRol = document.getElementById('user-role').value;
+
+            if (editId === "") {
+                const { error } = await supabaseClient.auth.signUp({
+                    email: email,
+                    password: password,
+                    phone: phone ? phone : undefined,
+                    options: {
+                        data: { 
+                            role: nuevoRol,
+                            display_name: displayName
+                        }
+                    }
+                });
+
+                if (error) {
+                    mostrarAlerta("Error al crear usuario: " + error.message, "red");
+                } else {
+                    mostrarAlerta("¡Usuario creado exitosamente!", "green");
+                    cerrarModalUsuario();
+                    cargarUsuariosSupabase();
+                }
+            } else {
+                const { error } = await supabaseClient.rpc('update_user_role', { 
+                    user_id: editId, 
+                    new_role: nuevoRol,
+                    new_phone: phone 
+                });
+
+                if (error) {
+                    mostrarAlerta("Error al actualizar usuario: " + error.message, "red");
+                } else {
+                    mostrarAlerta("¡Usuario actualizado correctamente!", "green");
+                    cerrarModalUsuario();
+                    cargarUsuariosSupabase();
+                }
+            }
+        });
+
+        async function eliminarUsuario(id, email) {
+            if (rolActualUsuario !== 'admin') return;
+            if (!confirm(`¿Estás seguro de eliminar el acceso para ${email}?`)) return;
+
+            const { error } = await supabaseClient.rpc('delete_auth_user', { user_id: id });
+            if (error) {
+                mostrarAlerta("Error al eliminar usuario: " + error.message, "red");
+            } else {
+                mostrarAlerta("Usuario eliminado del sistema.", "green");
+                cargarUsuariosSupabase();
+            }
+        }
+
+        function abrirModalNuevoProducto() {
+            if (rolActualUsuario !== 'admin') return;
+            document.getElementById('modal-titulo').innerText = "Registrar Nuevo Insumo";
+            document.getElementById('edit-id').value = "";
+            document.getElementById('input-codigo').value = "";
+            document.getElementById('input-descripcion').value = "";
+            document.getElementById('input-categoria').value = "";
+            document.getElementById('input-stock').value = "0";
+            document.getElementById('input-precio').value = "0.00";
+            document.getElementById('modal-producto').classList.remove('hidden');
+        }
+
+        function editarInsumo(codigo) {
+            if (rolActualUsuario !== 'admin') return;
+            const item = listaInsumos.find(i => Number(i.CODIGO) === Number(codigo));
+            if (!item) return;
+            document.getElementById('modal-titulo').innerText = "Modificar Insumo";
+            document.getElementById('edit-id').value = item.CODIGO;
+            document.getElementById('input-codigo').value = item.CODIGO;
+            document.getElementById('input-codigo').setAttribute('readonly', true);
+            document.getElementById('input-descripcion').value = item.DESCRIPCION || '';
+            document.getElementById('input-categoria').value = item.CATEGORIA || '';
+            document.getElementById('input-stock').value = item.INVENTARIO_INICIAL || 0;
+            document.getElementById('input-precio').value = item.PRECIO_REFERENTE || 0;
+            document.getElementById('modal-producto').classList.remove('hidden');
+        }
+
+        function cerrarModalProducto() {
+            document.getElementById('modal-producto').classList.add('hidden');
+            document.getElementById('input-codigo').removeAttribute('readonly');
+        }
+
+        document.getElementById('form-producto').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (rolActualUsuario !== 'admin') return;
+
+            const editId = document.getElementById('edit-id').value;
+            const payload = {
+                CODIGO: parseInt(document.getElementById('input-codigo').value),
+                DESCRIPCION: document.getElementById('input-descripcion').value,
+                CATEGORIA: document.getElementById('input-categoria').value,
+                INVENTARIO_INICIAL: parseInt(document.getElementById('input-stock').value),
+                PRECIO_REFERENTE: parseFloat(document.getElementById('input-precio').value)
+            };
+
+            let error = editId !== "" ? (await supabaseClient.from('skus').update(payload).eq('CODIGO', parseInt(editId))).error 
+                                      : (await supabaseClient.from('skus').insert([payload])).error;
+
+            if (error) {
+                mostrarAlerta("Error al guardar: " + error.message, "red");
+            } else {
+                mostrarAlerta("¡Insumo guardado en Supabase!", "green");
+                cerrarModalProducto();
+                cargarInventario();
+            }
+        });
+
+        async function eliminarInsumo(codigo) {
+            if (rolActualUsuario !== 'admin') return;
+            if (!confirm("¿Estás seguro de eliminar este insumo?")) return;
+            const { error } = await supabaseClient.from('skus').delete().eq('CODIGO', Number(codigo));
+            if (!error) {
+                mostrarAlerta("Insumo eliminado.", "green");
+                cargarInventario();
+            } else {
+                mostrarAlerta("Error al eliminar: " + error.message, "red");
+            }
+        }
+
+        function abrirModalProveedor() {
+            if (rolActualUsuario !== 'admin') return;
+            document.getElementById('modal-prov-titulo').innerText = "Registrar Proveedor";
+            document.getElementById('prov-edit-id').value = "";
+            document.getElementById('prov-nombre').value = "";
+            document.getElementById('prov-ruc').value = "";
+            document.getElementById('prov-contacto').value = "";
+            document.getElementById('prov-tel').value = "";
+            document.getElementById('prov-insumos').value = "";
+            document.getElementById('modal-proveedor').classList.remove('hidden');
+        }
+
+        function cerrarModalProveedor() {
+            document.getElementById('modal-proveedor').classList.add('hidden');
+        }
+
+        document.getElementById('form-proveedor').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (rolActualUsuario !== 'admin') return;
+
+            const id = document.getElementById('prov-edit-id').value;
+            const proveedor = {
+                nombre: document.getElementById('prov-nombre').value,
+                ruc: document.getElementById('prov-ruc').value,
+                contacto: document.getElementById('prov-contacto').value,
+                tel: document.getElementById('prov-tel').value,
+                insumos: document.getElementById('prov-insumos').value
+            };
+
+            let error = id ? (await supabaseClient.from('proveedores').update(proveedor).eq('id', id)).error 
+                           : (await supabaseClient.from('proveedores').insert([proveedor])).error;
+
+            if (!error) {
+                mostrarAlerta("¡Proveedor guardado!", "green");
+                cerrarModalProveedor();
+                cargarProveedoresSupabase();
+            }
+        });
+
+        async function cargarProveedoresSupabase() {
+            if (rolActualUsuario !== 'admin') return;
+            const tabla = document.getElementById('tabla-proveedores');
+            const { data, error } = await supabaseClient.from('proveedores').select('*').order('id', { ascending: false });
+            if (error || !data || data.length === 0) {
+                tabla.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-500">Sin proveedores registrados.</td></tr>`;
+                return;
+            }
+            tabla.innerHTML = '';
+            data.forEach(p => {
+                tabla.innerHTML += `
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="p-3 font-semibold text-blue-600">${p.nombre}</td>
+                        <td class="p-3 font-mono text-xs">${p.ruc}</td>
+                        <td class="p-3">${p.contacto || 'N/D'}</td>
+                        <td class="p-3 text-xs">${p.tel || 'N/D'}</td>
+                        <td class="p-3"><span class="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs">${p.insumos || 'General'}</span></td>
+                        <td class="p-3 text-center no-print">
+                            <button onclick="eliminarProveedorSupabase(${p.id})" class="text-red-600 hover:underline font-medium text-xs bg-red-50 px-2 py-1 rounded">Eliminar</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function eliminarProveedorSupabase(id) {
+            if (rolActualUsuario !== 'admin') return;
+            if (!confirm("¿Deseas eliminar este proveedor?")) return;
+            await supabaseClient.from('proveedores').delete().eq('id', id);
+            cargarProveedoresSupabase();
+        }
+
+        function mostrarAlerta(mensaje, color) {
+            const alerta = document.getElementById('alerta');
+            alerta.classList.remove('hidden');
+            
+            if (color === 'red') {
+                alerta.className = "mb-4 p-4 rounded-md text-sm bg-red-100 text-red-700 no-print";
+            } else if (color === 'green') {
+                alerta.className = "mb-4 p-4 rounded-md text-sm bg-green-100 text-green-700 no-print";
+            } else {
+                alerta.className = "mb-4 p-4 rounded-md text-sm bg-blue-100 text-blue-700 no-print";
+            }
+            
+            alerta.innerText = mensaje;
+            setTimeout(() => { alerta.classList.add('hidden'); }, 4000);
+        }
+
+        verificarSesion();
+    </script>
+</body>
+</html>
